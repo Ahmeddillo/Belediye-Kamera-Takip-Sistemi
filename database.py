@@ -126,6 +126,74 @@ class DatabaseManager:
                 return cur.fetchall()
         finally:
             self.return_connection(conn)
+            
+            
+    def hava_durumu_kaydet(self, kamera_id, durum, guven_orani):
+        """
+        Hava durumunu kaydet — sadece önceki kayıttan farklıysa yazar.
+        Aynı durum tekrar tekrar DB'ye yazılmaz.
+        
+        Parametreler:
+            kamera_id  : int   — hangi kameraya ait
+            durum      : str   — Türkçe etiket ("Gunesli", "Yagmurlu" vb.)
+            guven_orani: float — CLIP'in yüzdelik güven skoru (ör: 87.3)
+        
+        Döndürür:
+            True  → yeni kayıt yazıldı (durum değişmişti)
+            False → yazılmadı (durum aynıydı) veya hata
+        """
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Son kaydedilen durumu kontrol et
+                cur.execute("""
+                    SELECT durum FROM hava_durumu
+                    WHERE kamera_id = %s
+                    ORDER BY tespit_zamani DESC
+                    LIMIT 1
+                """, (kamera_id,))
+                son_kayit = cur.fetchone()
+ 
+                # Aynı durumsa yazma
+                if son_kayit and son_kayit[0] == durum:
+                    return False
+ 
+                # Farklıysa yaz
+                cur.execute("""
+                    INSERT INTO hava_durumu (kamera_id, durum, guven_orani)
+                    VALUES (%s, %s, %s)
+                """, (kamera_id, durum, guven_orani))
+                conn.commit()
+                return True
+ 
+        except Exception as e:
+            print(f"❌ Hava durumu kayıt hatası: {e}")
+            conn.rollback()
+            return False
+        finally:
+            self.return_connection(conn)
+ 
+    def hava_durumu_gecmis(self, kamera_id, tarih=None):
+        """
+        Belirli bir güne ait hava durumu geçmişini getirir.
+        tarih verilmezse bugün kullanılır.
+        """
+        if not tarih:
+            tarih = datetime.now().date()
+ 
+        conn = self.get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT durum, guven_orani, tespit_zamani
+                    FROM hava_durumu
+                    WHERE kamera_id = %s
+                        AND tespit_zamani::date = %s::date
+                    ORDER BY tespit_zamani ASC
+                """, (kamera_id, tarih))
+                return cur.fetchall()
+        finally:
+            self.return_connection(conn)
     
     def close(self):
         """Tüm bağlantıları kapat"""

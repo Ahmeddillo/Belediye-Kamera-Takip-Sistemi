@@ -121,19 +121,19 @@ def saatlik_rapor(
     tarih: Optional[str] = None,
     conn=Depends(get_db)
 ):
-    """Saatlik yoğunluk raporu"""
+    """Saatlik yoğunluk raporu (Farklı Kişi Sayılarına Göre)"""
     if not tarih:
         tarih = datetime.now().strftime("%Y-%m-%d")
     
     with conn.cursor() as cur:
+        # DÜZELTME: SUM(toplam_kisi) yerine SUM(farkli_kisi_sayisi) alınıyor
         cur.execute("""
             SELECT 
                 date_trunc('hour', baslangic_zamani) as saat,
                 COUNT(*) as dakika_sayisi,
-                SUM(toplam_kisi) as toplam_kisi,
+                SUM(COALESCE(CAST(detaylar->>'farkli_kisi_sayisi' AS INTEGER), 0)) as toplam_kisi,
                 ROUND(AVG(ortalama_kisi)::numeric, 2) as ortalama_kisi,
-                MAX(maksimum_kisi) as pik_kisi,
-                MIN(minimum_kisi) as minimum_kisi
+                MAX(COALESCE(CAST(detaylar->>'farkli_kisi_sayisi' AS INTEGER), 0)) as pik_kisi
             FROM dakikalik_olculer 
             WHERE kamera_id = %s 
                 AND baslangic_zamani::date = %s::date
@@ -143,7 +143,7 @@ def saatlik_rapor(
         
         sonuclar = cur.fetchall()
         
-        # Özet bilgi
+        # Özet bilgi: Tüm saatlerdeki farklı kişilerin toplamı
         toplam = sum([s['toplam_kisi'] for s in sonuclar]) if sonuclar else 0
         
         return {
@@ -159,13 +159,14 @@ def gunluk_rapor(
     bitis: str,
     conn=Depends(get_db)
 ):
-    """Günlük rapor (tarih aralığı)"""
+    """Günlük rapor (Farklı Kişi Sayılarına Göre)"""
     with conn.cursor() as cur:
+        # DÜZELTME: Günlük toplamda da farklı kişileri topluyoruz
         cur.execute("""
             SELECT 
                 baslangic_zamani::date as gun,
                 COUNT(*) as olcum_sayisi,
-                SUM(toplam_kisi) as gunluk_toplam,
+                SUM(COALESCE(CAST(detaylar->>'farkli_kisi_sayisi' AS INTEGER), 0)) as gunluk_toplam,
                 ROUND(AVG(ortalama_kisi)::numeric, 2) as gunluk_ortalama
             FROM dakikalik_olculer 
             WHERE kamera_id = %s 
@@ -316,6 +317,85 @@ def eski_verileri_temizle(
         return {"mesaj": f"{gun} günden eski veriler siliniyor (background)"}
     else:
         return {"mesaj": "Background tasks desteklenmiyor"}
+    
+@app.get("/hava-durumu/{kamera_id}")
+def son_hava_durumu(kamera_id: int, conn=Depends(get_db)):
+    """Bir kameranın en son tespit edilen hava durumunu getirir."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT durum, guven_orani, tespit_zamani
+            FROM hava_durumu
+            WHERE kamera_id = %s
+            ORDER BY tespit_zamani DESC
+            LIMIT 1
+        """, (kamera_id,))
+        sonuc = cur.fetchone()
+ 
+        if not sonuc:
+            raise HTTPException(status_code=404, detail="Bu kamera için hava durumu verisi yok")
+ 
+        return {
+            "kamera_id": kamera_id,
+            "durum":        sonuc["durum"],
+            "guven_orani":  sonuc["guven_orani"],
+            "tespit_zamani": sonuc["tespit_zamani"]
+        }
+ 
+ 
+@app.get("/hava-durumu-gecmis/{kamera_id}")
+def hava_durumu_gecmis(
+    kamera_id: int,
+    tarih: Optional[str] = None,
+    conn=Depends(get_db)
+):
+    """
+    Bir kameranın günlük hava durumu geçmişini getirir.
+    tarih parametresi verilmezse bugün kullanılır (YYYY-MM-DD formatında).
+    """
+    if not tarih:
+        tarih = datetime.now().strftime("%Y-%m-%d")
+ 
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT durum, guven_orani, tespit_zamani
+            FROM hava_durumu
+            WHERE kamera_id = %s
+                AND tespit_zamani::date = %s::date
+            ORDER BY tespit_zamani ASC
+        """, (kamera_id, tarih))
+        kayitlar = cur.fetchall()
+ 
+        # Saatlik dağılım özeti — hangi durumdan kaç kez geçildi
+        from collections import Counter
+        ozet = dict(Counter(k["durum"] for k in kayitlar))
+ 
+        return {
+            "kamera_id":  kamera_id,
+            "tarih":      tarih,
+            "toplam_degisim": len(kayitlar),
+            "durum_ozeti": ozet,         # {"Gunesli": 4, "Bulutlu": 2} gibi
+            "gecmis":     kayitlar
+        }
+ 
+ 
+@app.get("/hava-durumu-tum-kameralar")
+def tum_kameralar_hava_durumu(conn=Depends(get_db)):
+    """Sistemdeki tüm aktif kameraların son hava durumunu tek sorguda getirir."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT ON (h.kamera_id)
+                h.kamera_id,
+                k.ad        AS kamera_ad,
+                k.konum,
+                h.durum,
+                h.guven_orani,
+                h.tespit_zamani
+            FROM hava_durumu h
+            JOIN kameralar k ON k.id = h.kamera_id
+            WHERE k.aktif = true
+            ORDER BY h.kamera_id, h.tespit_zamani DESC
+        """)
+        return cur.fetchall()
 
 # Uvicorn ile çalıştırmak için:
 # python -m uvicorn api:app --reload --host 0.0.0.0 --port 8000
