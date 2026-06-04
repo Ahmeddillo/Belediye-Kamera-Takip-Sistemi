@@ -5,7 +5,8 @@ from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 import sys
 
-# ================= AYARLAR =================
+# Ayarlar:
+# -----------------------------------------------
 # Test etmek istediğin fotoğrafın adını yaz
 FOTOGRAF_YOLU = "w-test2 .png" 
 
@@ -21,7 +22,7 @@ etiket_sozlugu = {
 }
 
 ingilizce_etiketler = list(etiket_sozlugu.keys())
-# ===========================================
+# -----------------------------------------------
 
 print("🔄 CLIP Modeli yükleniyor...")
 model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
