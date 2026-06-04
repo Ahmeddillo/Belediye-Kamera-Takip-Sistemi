@@ -10,22 +10,22 @@ import queue
 import torch
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
-from database import DatabaseManager  # ++ EKLENDİ
+from database import DatabaseManager  
 
 # PyTorch'un tüm CPU'yu sömürmesini engelle
 torch.set_num_threads(2)
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-# ==================== KONFİGÜRASYON ====================
-KAYNAK_TIPI = "hls"   # "hls" | "rtsp" | "youtube"
+# Konfigürasyon:
+KAYNAK_TIPI = "youtube"   # "hls", "rtsp" veya "youtube"
 
 HLS_URL     = "https://seyret.malatya.bel.tr/streams/camera_1773435571403_555.m3u8"
 RTSP_URL    = "rtsp://kamera.belediye.gov.tr:554/stream"
-YOUTUBE_URL = "https://www.youtube.com/watch?v=BURAYA_ID"
+YOUTUBE_URL = "https://www.youtube.com/watch?v=wqctLW0Hb_0"
 
-KAMERA_ID = 1  # ++ EKLENDİ
+KAMERA_ID = 1  
 
-PG_CONFIG = {   # ++ EKLENDİ
+PG_CONFIG = {  
     'host': 'localhost',
     'database': 'belediye_kamera_db',
     'user': 'postgres',
@@ -54,8 +54,8 @@ INGILIZCE_ETIKETLER = list(ETIKET_SOZLUGU.keys())
 
 class HavaDurumuRadari:
     def __init__(self):
-        self.db = DatabaseManager(PG_CONFIG)  # ++ EKLENDİ
-        self.db.connect()                      # ++ EKLENDİ
+        self.db = DatabaseManager(PG_CONFIG)  
+        self.db.connect()                     
 
         print("🔄 CLIP modeli yükleniyor...")
         self.clip_model     = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
@@ -122,22 +122,26 @@ class HavaDurumuRadari:
         return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     def _ffmpeg_okuyucu(self):
+        # FFmpeg üzerinden gelen ham bayt verilerini okuyup görüntü karelerine (frame) dönüştüren döngü
         frame_size = CIBOZUNURLUK[0] * CIBOZUNURLUK[1] * 3
         self.process = self._ffmpeg_baslat()
 
         while self.running:
             raw = self.process.stdout.read(frame_size)
 
+            # Akış kesilirse süreci yeniden başlatarak bağlantıyı tazeler
             if len(raw) != frame_size:
                 print("🔄 Akış kesildi, yeniden bağlanılıyor...")
                 time.sleep(1)
                 self.process = self._ffmpeg_baslat()
                 continue
 
+            # Ham veriyi numpy dizisine çevirip görüntü formatına sokar
             frame = np.frombuffer(raw, dtype=np.uint8).reshape(
                 (CIBOZUNURLUK[1], CIBOZUNURLUK[0], 3)
             )
 
+            # Kuyruk doluysa en eski kareyi atarak güncel kalmayı sağlar (buffer şişmesini önler)
             if self.frame_kuyrugu.full():
                 try:
                     self.frame_kuyrugu.get_nowait()
@@ -147,15 +151,18 @@ class HavaDurumuRadari:
             self.frame_kuyrugu.put(frame)
 
     def _clip_isleyicisi(self):
+        # Analiz kuyruğuna düşen kareleri yapay zeka (CLIP) ile sınıflandıran iş parçacığı
         while self.running:
             try:
                 frame = self.analiz_kuyrugu.get(timeout=1)
             except queue.Empty:
                 continue
 
+            # OpenCV formatını (BGR) CLIP modelinin beklediği PIL/RGB formatına dönüştürür
             rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             goruntu = Image.fromarray(rgb)
 
+            # Görüntüyü ve metin etiketlerini modele hazırlayıp tensöre dönüştürür
             inputs = self.clip_processor(
                 text=INGILIZCE_ETIKETLER,
                 images=goruntu,
@@ -166,33 +173,39 @@ class HavaDurumuRadari:
             with torch.no_grad():
                 outputs = self.clip_model(**inputs)
 
+            # Model sonuçlarını olasılık değerlerine döküp en yüksek tahminli etiketi seçer
             ihtimaller   = outputs.logits_per_image.softmax(dim=1).cpu().numpy()[0]
             en_iyi_index = ihtimaller.argmax()
             etiket_tr    = ETIKET_SOZLUGU[INGILIZCE_ETIKETLER[en_iyi_index]]
             oran         = ihtimaller[en_iyi_index] * 100
 
+            # Tahmin sonuçlarını arayüzde göstermek üzere günceller ve veritabanına kaydeder
             self.mevcut_hava_durumu = f"{etiket_tr} (%{oran:.1f})"
             print(f"🌡️  {self.mevcut_hava_durumu}")
 
             self.db.hava_durumu_kaydet(KAMERA_ID, etiket_tr, float(round(oran, 2)))  # ++ EKLENDİ
 
     def run(self):
+        # Görselleştirme ve ana döngü yönetimi
         print("\n🎥 CANLI YAYIN BAŞLADI — çıkmak için 'q'\n")
 
         while self.running:
             try:
+                # Görüntüleme kuyruğundan en son kareyi alır
                 frame = self.frame_kuyrugu.get(timeout=0.1)
             except queue.Empty:
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
                 continue
 
+            # Belirlenen zaman aralıklarıyla (HAVA_ANALIZ_ARALIGI) analiz kuyruğuna kopya gönderir
             simdi = time.time()
             if (simdi - self.son_hava_analiz_zamani > HAVA_ANALIZ_ARALIGI
                     and not self.analiz_kuyrugu.full()):
                 self.analiz_kuyrugu.put(frame.copy())
                 self.son_hava_analiz_zamani = simdi
 
+            # Ekran üzerine bilgi paneli ve analiz sonuçlarını yazdırır
             annotated = cv2.resize(frame, EKRAN_BOYUTU)
             cv2.rectangle(annotated, (0, 0), (520, 75), (0, 0, 0), -1)
             cv2.putText(annotated, "CANLI HAVA DURUMU RADARI",
@@ -208,18 +221,21 @@ class HavaDurumuRadari:
         self.cleanup()
 
     def signal_handler(self, sig, frame):
-        print("\n👋 Durduruluyor...")
+        # Yazılımın dış sinyallerle (Ctrl+C gibi) güvenli şekilde durmasını sağlar
+        print("\n Durduruluyor...")
         self.running = False
 
     def cleanup(self):
+        # Kaynakları serbest bırakma: FFmpeg'i durdurur, DB bağlantısını kapatır ve pencereleri yok eder
         self.running = False
         if self.process:
             self.process.terminate()
-        self.db.close()        # ++ EKLENDİ
+        self.db.close()        
         cv2.destroyAllWindows()
         print("✅ Program sonlandırıldı.")
 
 
 if __name__ == "__main__":
+    # Uygulama başlatıcı
     radar = HavaDurumuRadari()
     radar.run()
