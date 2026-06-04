@@ -1,0 +1,1355 @@
+<!-- index.cshtml -->
+@model BelediyeDashboard.Models.DashboardViewModel
+@{
+    ViewData["Title"] = "Dashboard";
+    var ilkKameraId = Model.Kameralar.FirstOrDefault()?.Id ?? 1;
+}
+
+@* API Bağlantı Uyarısı *@
+@if (TempData["Hata"] != null)
+{
+    <div class="api-uyari">
+        <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+        <div>
+            <strong>API Bağlantı Hatası:</strong> @TempData["Hata"]<br>
+            <small>FastAPI servisini başlatmak için: <code>uvicorn api:app --reload --port 8000</code></small>
+        </div>
+    </div>
+}
+
+<!-- KPI SATIRLARI -->
+<div class="row g-3 mb-4">
+    <div class="col-xl-3 col-sm-6">
+        <div class="kpi-card mavi">
+            <div class="kpi-icon"><i class="bi bi-people-fill"></i></div>
+            <div class="kpi-label">Anlık Toplam Kişi</div>
+            <div class="kpi-value" id="kpi-anlik">@Model.ToplamAnlikKisi</div>
+            <div class="kpi-meta">Tüm kameralar birleşik</div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-sm-6">
+        <div class="kpi-card yesil">
+            <div class="kpi-icon"><i class="bi bi-camera-video-fill"></i></div>
+            <div class="kpi-label">Aktif Kamera</div>
+            <div class="kpi-value">@Model.AktifKameraSayisi</div>
+            <div class="kpi-meta">@Model.Kameralar.Count kameradan @Model.AktifKameraSayisi aktif</div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-sm-6">
+        <div class="kpi-card altin">
+            <div class="kpi-icon"><i class="bi bi-graph-up-arrow"></i></div>
+            <div class="kpi-label">Bugün Toplam Kişi</div>
+            <div class="kpi-value" id="kpi-bugun">
+                @(Model.SaatlikRaporlar.Values.FirstOrDefault()?.ToplamKisi ?? 0)
+            </div>
+            <div class="kpi-meta">@DateTime.Now.ToString("dd MMMM yyyy")</div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-sm-6">
+        <div class="kpi-card turuncu">
+            <div class="kpi-icon"><i class="bi bi-activity"></i></div>
+            <div class="kpi-label">Son Güncelleme</div>
+            <div class="kpi-value" style="font-size:24px;" id="kpi-zaman">@Model.SonGuncelleme</div>
+            <div class="kpi-meta">Anlık ölçüm zamanı</div>
+        </div>
+    </div>
+</div>
+
+<!-- SAATLİK GRAFİK + KAMERA LİSTESİ -->
+<div class="row g-3 mb-4">
+
+    <div class="col-xl-8">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <i class="bi bi-bar-chart-fill"></i>
+                    Saatlik Yoğunluk Analizi
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="canli-badge"><span class="canli-nokta"></span> CANLI</span>
+                    <select class="form-select form-select-sm" id="grafik-kamera-sec"
+                            style="width:auto;font-size:12px;"
+                            onchange="saatlikGrafikYukle(this.value)">
+                        @foreach (var k in Model.Kameralar)
+                        {
+                            <option value="@k.Id">@k.Ad</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <div class="panel-body">
+                <canvas id="saatlikGrafik" height="90"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div class="panel h-100">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <i class="bi bi-camera-video-fill"></i>
+                    Kamera Durumları
+                </div>
+                <small class="text-muted" id="kamera-guncelleme-zaman">--:--</small>
+            </div>
+            <div class="panel-body" style="padding:14px;">
+                <div id="kamera-listesi">
+                    @foreach (var kamera in Model.Kameralar)
+                    {
+                        var sonDakika = Model.SonDakikaVerileri.GetValueOrDefault(kamera.Id);
+                        var kisiSayisi = sonDakika?.Veri?.ToplamKisi ?? 0;
+
+                        <div class="kamera-card" id="kamera-card-@kamera.Id">
+                            <div class="kamera-avatar">
+                                <i class="bi bi-camera-video-fill"></i>
+                            </div>
+                            <div class="kamera-info">
+                                <div class="kamera-ad">
+                                    <span class="aktif-dot @(kamera.Aktif ? "aktif" : "pasif")"></span>
+                                    @kamera.Ad
+                                </div>
+                                <div class="kamera-konum">
+                                    <i class="bi bi-geo-alt"></i> @kamera.Konum
+                                </div>
+                            </div>
+                            <div class="kamera-badge">
+                                <div class="kisi-sayi" id="kamera-kisi-@kamera.Id">@kisiSayisi</div>
+                                <div class="kisi-label">kişi</div>
+                            </div>
+                        </div>
+                    }
+                    @if (!Model.Kameralar.Any())
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-camera-video-off fs-1 d-block mb-2"></i>
+                            <small>Kamera bulunamadı.<br>API üzerinden kamera ekleyin.</small>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- HAFTALIK ÖZET + 7 GÜNLÜK TREND -->
+<div class="row g-3 mb-4">
+
+    <div class="col-xl-5">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <i class="bi bi-calendar3-week-fill"></i>
+                    Haftalık Özet
+                </div>
+                <small class="text-muted">Son 7 gün</small>
+            </div>
+            <div class="panel-body" style="padding:0;">
+                @{
+                    var gunlukDetay = Model.HaftalikRapor?.GunlukDetay ?? new();
+                    var maxToplam = gunlukDetay.Any() ? gunlukDetay.Max(g => g.GunlukToplam) : 1;
+                }
+                @if (gunlukDetay.Any())
+                {
+                    <table class="rapor-tablo">
+                        <thead>
+                            <tr>
+                                <th>Tarih</th>
+                                <th>Toplam Kişi</th>
+                                <th>Ortalama</th>
+                                <th>Yoğunluk</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var gun in gunlukDetay.OrderByDescending(g => g.Gun))
+                            {
+                                var oran = maxToplam > 0 ? (gun.GunlukToplam * 100 / maxToplam) : 0;
+                                <tr>
+                                    <td>@gun.Gun.ToString("dd MMM")</td>
+                                    <td class="deger">@gun.GunlukToplam.ToString("N0")</td>
+                                    <td>@gun.GunlukOrtalama.ToString("F1")</td>
+                                    <td style="min-width:80px;">
+                                        <div class="yogunluk-bar">
+                                            <div class="yogunluk-bar-ic" style="width:@oran%"></div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <div class="text-center py-4 text-muted p-3">
+                        <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                        <small>Haftalık veri henüz mevcut değil.</small>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-7">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <i class="bi bi-graph-up"></i>
+                    7 Günlük Trend
+                </div>
+                <select class="form-select form-select-sm" id="trend-kamera-sec"
+                        style="width:auto;font-size:12px;"
+                        onchange="haftalikGrafikYukle(this.value)">
+                    @foreach (var k in Model.Kameralar)
+                    {
+                        <option value="@k.Id">@k.Ad</option>
+                    }
+                </select>
+            </div>
+            <div class="panel-body">
+                <canvas id="haftalikGrafik" height="120"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ++ HAVA DURUMU ÖNİZLEME PANELİ -->
+<div class="row g-3">
+    <div class="col-12">
+        <div class="panel" style="background:var(--mavi-koyu); border-color:rgba(255,255,255,.1);">
+            <div class="panel-header" style="border-bottom-color:rgba(255,255,255,.1);">
+                <div class="panel-title" style="color:#fff;">
+                    <i class="bi bi-cloud-sun-fill" style="color:#f59e0b;"></i>
+                    Hava Durumu
+                </div>
+                <a href="/Dashboard/HavaDurumu"
+                   style="display:inline-flex; align-items:center; gap:6px;
+                          padding:7px 16px; background:rgba(255,255,255,.08);
+                          border:1px solid rgba(255,255,255,.2); border-radius:8px;
+                          color:#93c5fd; text-decoration:none; font-size:13px; font-weight:600;
+                          transition:all .2s;"
+                   onmouseover="this.style.background='rgba(255,255,255,.15)'"
+                   onmouseout="this.style.background='rgba(255,255,255,.08)'">
+                    <i class="bi bi-arrow-right-circle"></i> Detaylı Görünüm
+                </a>
+            </div>
+            <div class="panel-body">
+                <div id="hava-onizleme-listesi"
+                     style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+                    <span style="color:rgba(255,255,255,.4); font-size:13px;">Yükleniyor...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<button class="btn btn-sm btn-outline-primary"
+        data-bs-toggle="modal" data-bs-target="#plakaModal">
+    <i class="bi bi-car-front-fill me-1"></i>Plaka Tanı
+</button>
+
+<!-- ++ YENİ: Araç Sayım butonu -->
+<button class="btn btn-sm btn-outline-success"
+        data-bs-toggle="modal" data-bs-target="#aracSayModal">
+    <i class="bi bi-truck me-1"></i>Araç Say
+</button>
+
+<button class="btn btn-sm btn-outline-warning"
+        data-bs-toggle="modal" data-bs-target="#trafikModal">
+    <i class="bi bi-traffic-cone me-1"></i>Trafik Yoğunluk
+</button>
+
+<!-- PLAKA MODAL -->
+<div class="modal fade" id="plakaModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="background:var(--panel-bg); color:var(--text-primary);">
+            <div class="modal-header" style="border-color:var(--border-color);">
+                <h5 class="modal-title">
+                    <i class="bi bi-car-front-fill me-2"></i>Plaka Tanıma
+                </h5>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+
+                <!-- Yükleme alanı -->
+                <div id="plaka-drop-alan"
+                     style="border:2px dashed var(--border-color); border-radius:12px;
+                            padding:40px; text-align:center; cursor:pointer;
+                            transition:border-color .2s;"
+                     onclick="document.getElementById('plaka-dosya').click()"
+                     ondragover="event.preventDefault();this.style.borderColor='#2563EB'"
+                     ondragleave="this.style.borderColor='var(--border-color)'"
+                     ondrop="plakaDrop(event)">
+                    <i class="bi bi-cloud-arrow-up-fill fs-1"
+                       style="color:#2563EB; display:block; margin-bottom:10px;"></i>
+                    <div style="font-size:14px; color:var(--text-secondary);">
+                        Görüntüyü buraya sürükleyin ya da tıklayın
+                    </div>
+                    <small style="color:var(--text-secondary);">JPG · PNG · BMP</small>
+                    <input type="file" id="plaka-dosya" accept=".jpg,.jpeg,.png,.bmp"
+                           style="display:none" onchange="plakaYukle(this.files[0])">
+                </div>
+
+                <!-- Önizleme -->
+                <div id="plaka-onizleme" style="display:none; margin-top:16px; text-align:center;">
+                    <img id="plaka-onizleme-img" src=""
+                         style="max-height:200px; border-radius:8px;
+                                border:1px solid var(--border-color);">
+                </div>
+
+                <!-- Yükleniyor -->
+                <div id="plaka-yukleniyor" style="display:none; text-align:center; margin-top:20px;">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div style="margin-top:8px; font-size:13px; color:var(--text-secondary);">
+                        Python servisi işliyor...
+                    </div>
+                </div>
+
+                <!-- Sonuçlar -->
+                <div id="plaka-sonuclar" style="margin-top:16px;"></div>
+            </div>
+            <div class="modal-footer" style="border-color:var(--border-color);">
+                <button class="btn btn-sm btn-secondary"
+                        data-bs-dismiss="modal">
+                    Kapat
+                </button>
+                <button class="btn btn-sm btn-primary"
+                        onclick="plakaTemizle()">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Temizle
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ARAÇ SAYIM MODAL -->
+<div class="modal fade" id="aracSayModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content" style="background:var(--panel-bg); color:var(--text-primary);">
+
+            <div class="modal-header" style="border-color:var(--border-color);">
+                <h5 class="modal-title">
+                    <i class="bi bi-camera-video me-2"></i>Araç Sayımı
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                        onclick="aracDurdur()"></button>
+            </div>
+
+            <div class="modal-body">
+
+                <!-- Giriş satırı -->
+                <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center;">
+                    <input type="text" id="arac-url-input"
+                           placeholder="rtsp://... veya https://www.youtube.com/watch?v=..."
+                           style="flex:1; padding:9px 14px; border-radius:8px;
+                        border:1px solid var(--border-color);
+                        background:var(--sidebar-bg); color:var(--text-primary); font-size:13px;">
+                    <input type="number" id="arac-max-kare" value="0" min="0" max="9999"
+                           title="0 = süresiz (RTSP için önerilir)"
+                           style="width:80px; padding:9px 10px; border-radius:8px;
+                        border:1px solid var(--border-color);
+                        background:var(--sidebar-bg); color:var(--text-primary);
+                        font-size:13px; text-align:center;">
+                    <small style="color:var(--text-secondary); white-space:nowrap;">
+                        maks. kare<br><span style="font-size:10px;">(0=sonsuz)</span>
+                    </small>
+                    <button onclick="aracSayBaslat()" id="arac-say-btn"
+                            style="padding:9px 20px; border-radius:8px; background:#16a34a;
+                         color:#fff; border:none; font-size:13px; font-weight:600;
+                         cursor:pointer; white-space:nowrap;"
+                            onmouseover="this.style.background='#15803d'"
+                            onmouseout="this.style.background='#16a34a'">
+                        <i class="bi bi-play-fill me-1"></i>Başlat
+                    </button>
+                    <button onclick="aracDurdur()" id="arac-dur-btn" disabled
+                            style="padding:9px 16px; border-radius:8px; background:#dc2626;
+                         color:#fff; border:none; font-size:13px; font-weight:600;
+                         cursor:pointer; white-space:nowrap; opacity:.5;"
+                            onmouseover="if(!this.disabled)this.style.background='#b91c1c'"
+                            onmouseout="this.style.background='#dc2626'">
+                        <i class="bi bi-stop-fill me-1"></i>Durdur
+                    </button>
+                </div>
+
+                <!-- Ana içerik: sol video, sağ istatistik -->
+                <div style="display:flex; gap:14px;">
+
+                    <!-- Video alanı -->
+                    <div style="flex:1; min-width:0;">
+                        <div id="arac-video-kapsayici"
+                             style="background:#000; border-radius:10px; overflow:hidden;
+                        border:1px solid var(--border-color);
+                        aspect-ratio:16/9; display:flex;
+                        align-items:center; justify-content:center;">
+                            <div id="arac-video-placeholder"
+                                 style="color:var(--text-secondary); font-size:13px; text-align:center;">
+                                <i class="bi bi-camera-video" style="font-size:40px; display:block; margin-bottom:8px;"></i>
+                                Video akışı burada görünecek
+                            </div>
+                            <img id="arac-video-img" src="" alt="Canlı Akış"
+                                 style="display:none; width:100%; height:100%; object-fit:contain;">
+                        </div>
+                        <!-- Durum çubuğu -->
+                        <div id="arac-durum-bar"
+                             style="margin-top:6px; font-size:11px; color:var(--text-secondary);
+                        display:flex; justify-content:space-between;">
+                            <span id="arac-durum-metin">—</span>
+                            <span id="arac-kare-sayaci">Kare: 0</span>
+                        </div>
+                    </div>
+
+                    <!-- İstatistik paneli -->
+                    <div style="width:220px; flex-shrink:0; display:flex; flex-direction:column; gap:10px;">
+
+                        <!-- Anlık sayım kartı -->
+                        <div style="background:rgba(22,163,74,.1); border:1px solid rgba(22,163,74,.25);
+                        border-radius:10px; padding:14px;">
+                            <div style="font-size:11px; color:var(--text-secondary); margin-bottom:4px;">
+                                ANLITIK KARE
+                            </div>
+                            <div id="stat-anlik" style="font-size:32px; font-weight:800; color:#16a34a; line-height:1;">0</div>
+                            <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">araç bu karede</div>
+                        </div>
+
+                        <!-- En yüksek kartı -->
+                        <div style="background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.25);
+                        border-radius:10px; padding:14px;">
+                            <div style="font-size:11px; color:var(--text-secondary); margin-bottom:4px;">
+                                EN YÜKSEK (tüm video)
+                            </div>
+                            <div id="stat-en-yuksek" style="font-size:32px; font-weight:800; color:#3b82f6; line-height:1;">0</div>
+                            <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">eş zamanlı araç</div>
+                        </div>
+
+                        <!-- Sınıf listesi -->
+                        <div style="background:var(--sidebar-bg); border:1px solid var(--border-color);
+                        border-radius:10px; padding:14px; flex:1; overflow-y:auto; max-height:260px;">
+                            <div style="font-size:11px; color:var(--text-secondary); margin-bottom:8px;">
+                                ARAÇ SINIFLARI
+                            </div>
+                            <div id="stat-siniflar">
+                                <div style="font-size:12px; color:var(--text-secondary);">—</div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Yükleniyor -->
+                <div id="arac-yukleniyor"
+                     style="display:none; text-align:center; padding:20px 0; font-size:13px;
+                    color:var(--text-secondary);">
+                    <div class="spinner-border spinner-border-sm text-success me-2" role="status"></div>
+                    Bağlanıyor, lütfen bekleyin...
+                </div>
+
+            </div>
+
+            <div class="modal-footer" style="border-color:var(--border-color);">
+                <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal"
+                        onclick="aracDurdur()">
+                    Kapat
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="aracSayTemizle()">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Temizle
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+
+<!-- TRAFİK YOĞUNLUK MODAL -->
+<div class="modal fade" id="trafikModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content" style="background:var(--panel-bg); color:var(--text-primary);">
+
+            <div class="modal-header" style="border-color:var(--border-color);">
+                <h5 class="modal-title">
+                    <i class="bi bi-traffic-cone me-2"></i>Trafik Yoğunluk Analizi
+                </h5>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="modal" onclick="trafikDurdur()"></button>
+            </div>
+
+            <div class="modal-body">
+
+                <!-- Giriş satırı -->
+                <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center;">
+                    <input type="text" id="trafik-url-input"
+                           placeholder="rtsp://... veya https://...m3u8 veya YouTube linki"
+                           style="flex:1; padding:9px 14px; border-radius:8px;
+                        border:1px solid var(--border-color);
+                        background:var(--sidebar-bg); color:var(--text-primary);
+                        font-size:13px;">
+                    <button onclick="trafikBaslat()" id="trafik-baslat-btn"
+                            style="padding:9px 20px; border-radius:8px; background:#2563eb;
+                         color:#fff; border:none; font-size:13px; font-weight:600;
+                         cursor:pointer; white-space:nowrap;"
+                            onmouseover="this.style.background='#1d4ed8'"
+                            onmouseout="this.style.background='#2563eb'">
+                        <i class="bi bi-play-fill me-1"></i>Başlat
+                    </button>
+                    <button onclick="trafikDurdur()" id="trafik-dur-btn" disabled
+                            style="padding:9px 16px; border-radius:8px; background:#dc2626;
+                         color:#fff; border:none; font-size:13px; font-weight:600;
+                         cursor:pointer; white-space:nowrap; opacity:.5;"
+                            onmouseover="if(!this.disabled)this.style.background='#b91c1c'"
+                            onmouseout="this.style.background='#dc2626'">
+                        <i class="bi bi-stop-fill me-1"></i>Durdur
+                    </button>
+                </div>
+
+                <!-- Ana içerik -->
+                <div style="display:flex; gap:14px;">
+
+                    <!-- Video -->
+                    <div style="flex:1; min-width:0;">
+                        <div style="background:#000; border-radius:10px; overflow:hidden;
+                        border:1px solid var(--border-color); aspect-ratio:16/9;
+                        display:flex; align-items:center; justify-content:center;">
+                            <div id="trafik-placeholder"
+                                 style="color:var(--text-secondary); font-size:13px; text-align:center;">
+                                <i class="bi bi-traffic-cone"
+                                   style="font-size:40px; display:block; margin-bottom:8px;"></i>
+                                Video akışı burada görünecek
+                            </div>
+                            <img id="trafik-video-img" src="" alt="Trafik Akışı"
+                                 style="display:none; width:100%; height:100%; object-fit:contain;">
+                        </div>
+                        <div style="margin-top:6px; font-size:11px; color:var(--text-secondary);
+                        display:flex; justify-content:space-between;">
+                            <span id="trafik-durum-metin">—</span>
+                            <span id="trafik-kare-sayaci">Kare: 0</span>
+                        </div>
+                    </div>
+
+                    <!-- İstatistik paneli -->
+                    <div style="width:220px; flex-shrink:0; display:flex; flex-direction:column; gap:10px;">
+
+                        <!-- Yoğunluk kartı -->
+                        <div id="trafik-yogunluk-kart"
+                             style="border-radius:10px; padding:16px;
+                        background:rgba(37,99,235,.1); border:1px solid rgba(37,99,235,.25);
+                        text-align:center;">
+                            <div style="font-size:11px; color:var(--text-secondary); margin-bottom:6px;">
+                                GÜNCEL DURUM
+                            </div>
+                            <div id="trafik-etiket"
+                                 style="font-size:28px; font-weight:800; color:#2563eb; letter-spacing:2px;">
+                                —
+                            </div>
+                            <div id="trafik-oran"
+                                 style="font-size:13px; color:var(--text-secondary); margin-top:4px;">
+                                Değişim: —
+                            </div>
+                        </div>
+
+                        <!-- Ortalama / Maks -->
+                        <div style="background:var(--sidebar-bg); border:1px solid var(--border-color);
+                        border-radius:10px; padding:14px; display:flex; flex-direction:column;
+                        gap:10px;">
+                            <div>
+                                <div style="font-size:10px; color:var(--text-secondary);">ORTALAMA DEĞİŞİM</div>
+                                <div id="trafik-ortalama"
+                                     style="font-size:22px; font-weight:700; color:#2563eb;">
+                                    —
+                                </div>
+                            </div>
+                            <div style="border-top:1px solid var(--border-color); padding-top:10px;">
+                                <div style="font-size:10px; color:var(--text-secondary);">MAKSİMUM DEĞİŞİM</div>
+                                <div id="trafik-maksimum"
+                                     style="font-size:22px; font-weight:700; color:#7c3aed;">
+                                    —
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Mini grafik -->
+                        <div style="background:var(--sidebar-bg); border:1px solid var(--border-color);
+                        border-radius:10px; padding:14px; flex:1;">
+                            <div style="font-size:10px; color:var(--text-secondary); margin-bottom:8px;">
+                                YOĞUNLUK GEÇMİŞİ
+                            </div>
+                            <canvas id="trafik-grafik" height="80"
+                                    style="width:100%; display:block;"></canvas>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Yükleniyor -->
+                <div id="trafik-yukleniyor"
+                     style="display:none; text-align:center; padding:16px 0;
+                    font-size:13px; color:var(--text-secondary);">
+                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                    Bağlanıyor...
+                </div>
+
+            </div>
+
+            <div class="modal-footer" style="border-color:var(--border-color);">
+                <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal"
+                        onclick="trafikDurdur()">
+                    Kapat
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="trafikTemizle()">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Temizle
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+
+<style>
+    /* Modal backdrop fix */
+    .modal-backdrop {
+        background-color: rgba(0, 0, 0, 0.5) !important;
+        opacity: 1 !important;
+    }
+
+    /* Plaka sonuç göster */
+    #plaka-sonuc {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        color: #1F2937 !important;
+        font-weight: bold !important;
+        font-size: 16px !important;
+        padding: 10px !important;
+        margin: 10px 0 !important;
+        background-color: #f0f2f6 !important;
+        border-radius: 8px !important;
+        z-index: 9999 !important;
+        position: relative !important;
+    }
+
+    /* Plaka sonuç tablosu */
+    .plaka-tablo {
+        display: table !important;
+        width: 100% !important;
+        margin-top: 20px !important;
+        background-color: white !important;
+        color: #1F2937 !important;
+    }
+
+        .plaka-tablo td, .plaka-tablo th {
+            padding: 12px !important;
+            border: 1px solid #e2e8f0 !important;
+            color: #1F2937 !important;
+        }
+
+        .plaka-tablo th {
+            background-color: #f1f5f9 !important;
+            font-weight: 600 !important;
+        }
+
+    /* Loading durumu */
+    .plaka-loading {
+        color: #2563EB !important;
+        font-weight: bold !important;
+    }
+
+    /* Hata mesajı */
+    .plaka-error {
+        color: #EF4444 !important;
+        background-color: #FEE2E2 !important;
+        padding: 12px !important;
+        border-radius: 8px !important;
+        margin: 10px 0 !important;
+    }
+
+    /* Başarı mesajı */
+    .plaka-success {
+        color: #10B981 !important;
+        background-color: #ECFDF5 !important;
+        padding: 12px !important;
+        border-radius: 8px !important;
+        margin: 10px 0 !important;
+    }
+
+    /* ⬇️ MODAL RENK DEĞİŞKENLERİ EKLE */
+    :root {
+        --panel-bg: #ffffff;
+        --text-primary: #1F2937;
+        --text-secondary: #6B7280;
+        --border-color: #e2e8f0;
+        --sidebar-bg: #f8fafc;
+        --mavi-koyu: #1E40AF;
+    }
+
+    /* Koyu tema desteği */
+    @@media (prefers-color-scheme: dark) {
+        :root {
+            --panel-bg: #1F2937;
+            --text-primary: #F3F4F6;
+            --text-secondary: #D1D5DB;
+            --border-color: #374151;
+            --sidebar-bg: #111827;
+            --mavi-koyu: #1E3A8A;
+        }
+    }
+
+    /* Modal body text rengi fix */
+    .modal-body {
+        color: var(--text-primary) !important;
+    }
+
+        .modal-body div {
+            color: var(--text-primary) !important;
+        }
+
+        .modal-body span {
+            color: var(--text-primary) !important;
+        }
+</style>
+
+@section Scripts {
+    <script>
+        const LOCAL_API_URL = '/Dashboard/TumKameralarDurum';
+        let saatlikChart  = null;
+        let haftalikChart = null;
+
+        Chart.defaults.font.family = "'DM Sans', sans-serif";
+        Chart.defaults.color = '#64748B';
+
+        // ── Hava durumu sabit verileri ──
+        const HAVA_IKON = {
+            "Gunesli":          "☀",
+            "Parcali Bulutlu":  "⛅",
+            "Bulutlu / Kapali": "☁",
+            "Yagmurlu / Islak": "🌧",
+            "Karli / Sisli":    "❄",
+            "Gece / Karanlik":  "🌙",
+            "Kirli Lens":       "⚠"
+        };
+        const HAVA_RENK = {
+            "Gunesli":          "#f59e0b",
+            "Parcali Bulutlu":  "#94a3b8",
+            "Bulutlu / Kapali": "#64748b",
+            "Yagmurlu / Islak": "#60a5fa",
+            "Karli / Sisli":    "#cbd5e1",
+            "Gece / Karanlik":  "#94a3b8",
+            "Kirli Lens":       "#f87171"
+        };
+
+        // ── Canlı Güncelleme ──
+        async function canliVerileriGuncelle() {
+            try {
+                const res    = await fetch(LOCAL_API_URL);
+                if (!res.ok) throw new Error("Veri çekilemedi");
+                const veriler = await res.json();
+
+                let anlikToplam = 0;
+                veriler.forEach(k => {
+                    const el = document.getElementById(`kamera-kisi-${k.id}`);
+                    if (el) {
+                        const eskiDeger = parseInt(el.textContent) || 0;
+                        el.textContent  = k.kisiSayisi;
+                        if (eskiDeger !== k.kisiSayisi) {
+                            el.style.color      = '#2563EB';
+                            el.style.fontWeight = 'bold';
+                            setTimeout(() => { el.style.color = ''; el.style.fontWeight = ''; }, 1000);
+                        }
+                    }
+                    anlikToplam += k.kisiSayisi;
+                });
+
+                document.getElementById('kpi-anlik').textContent = anlikToplam;
+                document.getElementById('kpi-zaman').textContent =
+                    new Date().toLocaleTimeString('tr-TR');
+
+                const gEl = document.getElementById('kamera-guncelleme-zaman');
+                if (gEl) gEl.textContent =
+                    new Date().toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' });
+            } catch (e) {
+                console.error('Canlı veri hatası:', e);
+            }
+        }
+
+        // ── Saatlik Grafik ──
+        async function saatlikGrafikYukle(kameraId) {
+            try {
+                const res = await fetch(`/Dashboard/SaatlikGrafik?kameraId=${kameraId}`);
+                const d   = await res.json();
+
+                if (d.toplamKisi !== undefined)
+                    document.getElementById('kpi-bugun').textContent =
+                        d.toplamKisi.toLocaleString('tr-TR');
+
+                if (!d.labels || d.labels.length === 0) return;
+
+                const ctx = document.getElementById('saatlikGrafik').getContext('2d');
+                if (saatlikChart) saatlikChart.destroy();
+
+                saatlikChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: d.labels,
+                        datasets: [
+                            {
+                                label: 'Ortalama Kişi',
+                                data: d.data,
+                                backgroundColor: 'rgba(37,99,235,0.15)',
+                                borderColor: '#2563EB',
+                                borderWidth: 2,
+                                borderRadius: 5,
+                                order: 2
+                            },
+                            {
+                                label: 'Pik Kişi',
+                                data: d.pikData,
+                                type: 'line',
+                                borderColor: '#C8901A',
+                                backgroundColor: 'rgba(200,144,26,0.1)',
+                                borderWidth: 2.5,
+                                pointBackgroundColor: '#C8901A',
+                                pointRadius: 4,
+                                tension: 0.4,
+                                fill: false,
+                                order: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { position: 'top' } },
+                        scales: {
+                            x: { grid: { display: false } },
+                            y: { beginAtZero: true, grid: { color: '#F1F5F9' } }
+                        }
+                    }
+                });
+            } catch (e) { console.warn('Saatlik grafik yüklenemedi:', e); }
+        }
+
+        // ── Haftalık Trend ──
+        async function haftalikGrafikYukle(kameraId) {
+            try {
+                const res = await fetch(`/Dashboard/HaftalikGrafik?kameraId=${kameraId}`);
+                const d   = await res.json();
+                if (!d.labels || d.labels.length === 0) return;
+
+                const ctx      = document.getElementById('haftalikGrafik').getContext('2d');
+                const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                gradient.addColorStop(0, 'rgba(37,99,235,0.25)');
+                gradient.addColorStop(1, 'rgba(37,99,235,0)');
+
+                if (haftalikChart) haftalikChart.destroy();
+
+                haftalikChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: d.labels,
+                        datasets: [{
+                            label: 'Günlük Toplam Kişi',
+                            data: d.data,
+                            borderColor: '#1A4A8A',
+                            backgroundColor: gradient,
+                            borderWidth: 2.5,
+                            pointBackgroundColor: '#2563EB',
+                            pointRadius: 5,
+                            tension: 0.35,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { grid: { display: false } },
+                            y: { beginAtZero: true, grid: { color: '#F1F5F9' } }
+                        }
+                    }
+                });
+            } catch (e) { console.warn('Haftalık grafik yüklenemedi:', e); }
+        }
+
+        // ── ++ Hava Durumu Önizleme (tüm kameralar) ──
+        async function havaOnizlemeGuncelle() {
+            const konteyner = document.getElementById('hava-onizleme-listesi');
+            try {
+                // Kamera listesini zaten biliyoruz, her biri için ayrı çek
+                const kameraIdleri = [@Html.Raw(string.Join(",", Model.Kameralar.Select(k => k.Id)))];
+
+                if (kameraIdleri.length === 0) {
+                    konteyner.innerHTML =
+                        '<span style="color:rgba(255,255,255,.4); font-size:13px;">Kamera bulunamadı.</span>';
+                    return;
+                }
+
+                const sonuclar = await Promise.all(
+                    kameraIdleri.map(id =>
+                        fetch(`/Dashboard/HavaDurumuCanli?kameraId=${id}`)
+                            .then(r => r.json())
+                            .then(d => ({ id, ...d }))
+                            .catch(() => ({ id, durum: 'Veri yok', guvenOrani: 0, tespitZamani: '' }))
+                    )
+                );
+
+                // Kamera adlarını SSR'dan al
+                const kameraAdlari = {
+        @foreach (var k in Model.Kameralar)
+        {
+            @Html.Raw($"{k.Id}: \"{k.Ad} — {k.Konum}\",")
+        }
+                };
+
+                konteyner.innerHTML = sonuclar.map(s => {
+                    const ikon  = HAVA_IKON[s.durum] ?? '?';
+                    const renk  = HAVA_RENK[s.durum] ?? '#94a3b8';
+                    const saat  = s.tespitZamani?.length >= 19
+                        ? s.tespitZamani.substring(11, 19) : '--:--';
+                    const ad    = kameraAdlari[s.id] ?? `Kamera ${s.id}`;
+                    const guven = typeof s.guvenOrani === 'number'
+                        ? s.guvenOrani.toFixed(1) : s.guvenOrani;
+
+                    return `
+                        <div style="display:flex; align-items:center; gap:10px;
+                                    background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12);
+                                    border-radius:10px; padding:12px 16px; min-width:220px;">
+                            <span style="font-size:30px; line-height:1;">${ikon}</span>
+                            <div>
+                                <div style="font-size:15px; font-weight:700; color:${renk};">
+                                    ${s.durum}
+                                </div>
+                                <div style="font-size:11px; color:rgba(255,255,255,.45); margin-top:2px;">
+                                    ${ad}
+                                </div>
+                                <div style="font-size:11px; color:rgba(255,255,255,.35);">
+                                    %${guven} · ${saat}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (e) {
+                konteyner.innerHTML =
+                    '<span style="color:rgba(255,255,255,.35); font-size:13px;">API bağlantısı yok</span>';
+            }
+        }
+
+        // ── Sayfa Başlangıç ──
+        document.addEventListener('DOMContentLoaded', () => {
+            const varsayilanId = @ilkKameraId;
+
+            canliVerileriGuncelle();
+            saatlikGrafikYukle(varsayilanId);
+            haftalikGrafikYukle(varsayilanId);
+            havaOnizlemeGuncelle();
+
+            setInterval(canliVerileriGuncelle, 3000);
+            setInterval(havaOnizlemeGuncelle, 30000);   // ++ 30sn'de bir güncelle
+
+            setInterval(() => {
+                const s1 = document.getElementById('grafik-kamera-sec').value;
+                saatlikGrafikYukle(s1);
+                const s2 = document.getElementById('trend-kamera-sec').value;
+                haftalikGrafikYukle(s2);
+            }, 60000);
+        });
+
+        // ── Plaka Tanıma ──
+        function plakaDrop(e) {
+            e.preventDefault();
+            document.getElementById('plaka-drop-alan').style.borderColor = 'var(--border-color)';
+            const f = e.dataTransfer.files[0];
+            if (f) plakaYukle(f);
+        }
+
+        function plakaTemizle() {
+            document.getElementById('plaka-sonuclar').innerHTML = '';
+            document.getElementById('plaka-onizleme').style.display = 'none';
+            document.getElementById('plaka-dosya').value = '';
+        }
+
+        async function plakaYukle(dosya) {
+            if (!dosya) return;
+
+            // Önizleme göster
+            const reader = new FileReader();
+            reader.onload = e => {
+                document.getElementById('plaka-onizleme-img').src = e.target.result;
+                document.getElementById('plaka-onizleme').style.display = 'block';
+            };
+            reader.readAsDataURL(dosya);
+
+            document.getElementById('plaka-yukleniyor').style.display = 'block';
+            document.getElementById('plaka-sonuclar').innerHTML = '';
+
+            const form = new FormData();
+            form.append('dosya', dosya);
+
+            try {
+                const res  = await fetch('/Dashboard/PlakaIsle', { method: 'POST', body: form });
+                const data = await res.json();
+
+                document.getElementById('plaka-yukleniyor').style.display = 'none';
+
+                if (data.hata) {
+                    document.getElementById('plaka-sonuclar').innerHTML =
+                        `<div class="alert alert-danger" style="color:#1F2937 !important;">${data.hata}</div>`;
+                    return;
+                }
+
+                if (!Array.isArray(data) || data.length === 0) {
+                    document.getElementById('plaka-sonuclar').innerHTML =
+                        `<div class="alert alert-warning" style="color:#1F2937 !important;">Plaka tespit edilemedi.</div>`;
+                    return;
+                }
+
+
+        document.getElementById('plaka-sonuclar').innerHTML = data.map(s => `
+            <div style="background:var(--sidebar-bg); border:1px solid var(--border-color);
+                        border-radius:10px; padding:20px; margin-bottom:10px;
+                        display:flex; justify-content:space-between; align-items:center;
+                        position:relative; z-index:1000;">
+                <div style="flex:1;">
+
+                    <div style="font-size:30px; color:var(--text-secondary);
+                                display:block; visibility:visible; opacity:1;">
+                        Ham: ${s.hamMetin} &nbsp;|&nbsp; Düzeltilmiş: ${s.duzeltilmisMetin}
+                    </div>
+                </div>
+                <div style="text-align:right; margin-left:20px;">
+                    <span style="display:inline-block; padding:6px 14px; border-radius:20px;
+                                 font-size:30px; font-weight:700;
+                                 background:${s.gecerli ? 'rgba(34,197,94,.15)' : 'rgba(248,113,113,.15)'};
+                                 color:${s.gecerli ? '#22c55e' : '#f87171'};
+                                 position:relative; z-index:1001;">
+                        ${s.gecerli ? '✅ Geçerli' : '⚠ Geçersiz'}
+                    </span>
+                    <div style="font-size:30px; color:var(--text-secondary); margin-top:8px;
+                                display:block; visibility:visible; opacity:1;">
+                        Tespit %${(s.tespitGuven * 100).toFixed(0)}
+                        · OCR %${(s.ocrGuven * 100).toFixed(0)}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+            } catch {
+                document.getElementById('plaka-yukleniyor').style.display = 'none';
+                document.getElementById('plaka-sonuclar').innerHTML =
+                    `<div class="alert alert-danger" style="color:#1F2937 !important;">Servise bağlanılamadı.</div>`;
+            }
+        }
+
+        // ── Araç Sayım ──
+        let _aracEventSource = null;
+
+        function aracSayTemizle() {
+            aracDurdur();
+            document.getElementById('arac-url-input').value      = '';
+            document.getElementById('arac-max-kare').value       = '0';
+            document.getElementById('arac-video-img').style.display     = 'none';
+            document.getElementById('arac-video-img').src               = '';
+            document.getElementById('arac-video-placeholder').style.display = 'flex';
+            document.getElementById('stat-anlik').textContent    = '0';
+            document.getElementById('stat-en-yuksek').textContent = '0';
+            document.getElementById('stat-siniflar').innerHTML   =
+                '<div style="font-size:12px; color:var(--text-secondary);">—</div>';
+            document.getElementById('arac-durum-metin').textContent  = '—';
+            document.getElementById('arac-kare-sayaci').textContent  = 'Kare: 0';
+        }
+
+        function aracDurdur() {
+            if (_aracEventSource) {
+                _aracEventSource.close();
+                _aracEventSource = null;
+            }
+
+            // MJPEG akışını kes
+            const img = document.getElementById('arac-video-img');
+            img.src = '';
+            img.style.display = 'none';
+            document.getElementById('arac-video-placeholder').style.display = 'flex';
+
+            // Worker'ı kapat
+            const url = document.getElementById('arac-url-input').value.trim();
+            if (url) {
+                fetch(`http://localhost:8000/api/arac-stream-durdur?kaynak=${encodeURIComponent(url)}`,
+                      { method: 'DELETE' }).catch(() => {});
+            }
+
+            document.getElementById('arac-say-btn').disabled = false;
+            document.getElementById('arac-say-btn').style.opacity = '1';
+            document.getElementById('arac-dur-btn').disabled = true;
+            document.getElementById('arac-dur-btn').style.opacity = '.5';
+            document.getElementById('arac-yukleniyor').style.display = 'none';
+            document.getElementById('arac-durum-metin').textContent = 'Durduruldu';
+        }
+
+        function aracSayBaslat() {
+            const url     = document.getElementById('arac-url-input').value.trim();
+            const maxKare = document.getElementById('arac-max-kare').value || 0;
+
+            if (!url) {
+                document.getElementById('arac-durum-metin').textContent = '⚠ URL boş olamaz';
+                return;
+            }
+
+            // Önceki akışı temizle
+            aracDurdur();
+
+            document.getElementById('arac-yukleniyor').style.display = 'block';
+            document.getElementById('arac-say-btn').disabled   = true;
+            document.getElementById('arac-say-btn').style.opacity  = '.5';
+            document.getElementById('arac-dur-btn').disabled   = false;
+            document.getElementById('arac-dur-btn').style.opacity  = '1';
+            document.getElementById('arac-durum-metin').textContent = 'Bağlanıyor...';
+
+            const base = `http://localhost:8000`;
+            const enc  = encodeURIComponent(url);
+
+            // 1) MJPEG akışını <img>'e bağla
+            const img = document.getElementById('arac-video-img');
+            img.onload = () => {
+                document.getElementById('arac-yukleniyor').style.display = 'none';
+                document.getElementById('arac-video-placeholder').style.display = 'none';
+                img.style.display = 'block';
+                document.getElementById('arac-durum-metin').textContent = '🔴 Canlı';
+            };
+            img.onerror = () => {
+                document.getElementById('arac-yukleniyor').style.display = 'none';
+                document.getElementById('arac-durum-metin').textContent = '⚠ Video akışı bağlanamadı';
+            };
+            img.src = `${base}/api/arac-video-stream?kaynak=${enc}&max_kare=${maxKare}`;
+
+            // 2) SSE istatistik akışını aç
+            _aracEventSource = new EventSource(
+                `${base}/api/arac-istatistik-stream?kaynak=${enc}&max_kare=${maxKare}`
+            );
+
+            _aracEventSource.onmessage = function(e) {
+                const d = JSON.parse(e.data);
+
+                if (d.hata) {
+                    document.getElementById('arac-durum-metin').textContent = `⚠ ${d.hata}`;
+                    aracDurdur();
+                    return;
+                }
+
+                if (d.bitti) {
+                    document.getElementById('arac-durum-metin').textContent =
+                        `✓ Tamamlandı — ${d.islenen_kare} kare işlendi`;
+                    aracDurdur();
+                    return;
+                }
+
+                // Anlık sayım
+                document.getElementById('stat-anlik').textContent     = d.toplam_su_an ?? 0;
+                document.getElementById('stat-en-yuksek').textContent = d.toplam_en_yuksek ?? 0;
+                document.getElementById('arac-kare-sayaci').textContent = `Kare: ${d.kare}`;
+
+                // Sınıf listesi — her iki sütun: anlık | max
+                const satirlar = Object.entries(d.en_yuksek || {})
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([cls, max]) => {
+                        const anlik = (d.kare_sayimlari || {})[cls] || 0;
+                        return `
+                            <div style="display:flex; justify-content:space-between;
+                                        align-items:center; padding:4px 0;
+                                        border-bottom:1px solid var(--border-color);">
+                                <span style="font-size:12px; display:flex; align-items:center; gap:5px;">
+                                    <i class="bi bi-truck" style="color:#16a34a;"></i>${cls}
+                                </span>
+                                <span style="font-size:12px; font-weight:700;">
+                                    <span style="color:#16a34a;">${anlik}</span>
+                                    <span style="color:var(--text-secondary); font-weight:400;"> / </span>
+                                    <span style="color:#3b82f6;">${max}</span>
+                                </span>
+                            </div>`;
+                    }).join('');
+
+                document.getElementById('stat-siniflar').innerHTML = satirlar ||
+                    '<div style="font-size:12px; color:var(--text-secondary);">Tespit bekleniyor...</div>';
+            };
+
+            _aracEventSource.onerror = () => {
+                // RTSP'de SSE bazen geçici kesiliyor, hemen bağlantıyı kopartmıyoruz
+                document.getElementById('arac-durum-metin').textContent = '⚠ İstatistik bağlantısı kesildi';
+            };
+        }
+
+        // ── Trafik Yoğunluk ──
+                let _trafikEventSource = null;
+        let _trafikGecmis      = [];
+
+        function trafikTemizle() {
+            trafikDurdur();
+            document.getElementById('trafik-url-input').value            = '';
+            document.getElementById('trafik-video-img').src              = '';
+            document.getElementById('trafik-video-img').style.display    = 'none';
+            document.getElementById('trafik-placeholder').style.display  = 'flex';
+            document.getElementById('trafik-etiket').textContent         = '—';
+            document.getElementById('trafik-oran').textContent           = 'Değişim: —';
+            document.getElementById('trafik-ortalama').textContent       = '—';
+            document.getElementById('trafik-maksimum').textContent       = '—';
+            document.getElementById('trafik-durum-metin').textContent    = '—';
+            document.getElementById('trafik-kare-sayaci').textContent    = 'Kare: 0';
+            _trafikGecmis = [];
+            trafikGrafikCiz([]);
+        }
+
+        function trafikDurdur() {
+            if (_trafikEventSource) {
+                _trafikEventSource.close();
+                _trafikEventSource = null;
+            }
+
+            const img = document.getElementById('trafik-video-img');
+            img.src = '';
+            img.style.display = 'none';
+            document.getElementById('trafik-placeholder').style.display = 'flex';
+
+            const url = document.getElementById('trafik-url-input').value.trim();
+            if (url) {
+                fetch(`http://localhost:8000/api/trafik-stream-durdur?kaynak=${encodeURIComponent(url)}`,
+                      { method: 'DELETE' }).catch(() => {});
+            }
+
+            document.getElementById('trafik-baslat-btn').disabled       = false;
+            document.getElementById('trafik-baslat-btn').style.opacity  = '1';
+            document.getElementById('trafik-dur-btn').disabled          = true;
+            document.getElementById('trafik-dur-btn').style.opacity     = '.5';
+            document.getElementById('trafik-yukleniyor').style.display  = 'none';
+            document.getElementById('trafik-durum-metin').textContent   = 'Durduruldu';
+        }
+
+        function _trafikVideoGoster() {
+            document.getElementById('trafik-yukleniyor').style.display  = 'none';
+            document.getElementById('trafik-placeholder').style.display = 'none';
+            document.getElementById('trafik-video-img').style.display   = 'block';
+            document.getElementById('trafik-durum-metin').textContent   = '🔴 Canlı';
+        }
+
+        function trafikBaslat() {
+            const url = document.getElementById('trafik-url-input').value.trim();
+            if (!url) {
+                document.getElementById('trafik-durum-metin').textContent = '⚠ URL boş olamaz';
+                return;
+            }
+
+            trafikDurdur();
+            _trafikGecmis = [];
+
+            document.getElementById('trafik-yukleniyor').style.display  = 'block';
+            document.getElementById('trafik-baslat-btn').disabled       = true;
+            document.getElementById('trafik-baslat-btn').style.opacity  = '.5';
+            document.getElementById('trafik-dur-btn').disabled          = false;
+            document.getElementById('trafik-dur-btn').style.opacity     = '1';
+            document.getElementById('trafik-durum-metin').textContent   = 'Bağlanıyor...';
+
+            const enc  = encodeURIComponent(url);
+            const base = 'http://localhost:8000';
+
+            // MJPEG video — src'yi bağla, gösterimi SSE'ye bırak
+            const img = document.getElementById('trafik-video-img');
+            img.style.display = 'none';
+            img.onerror = () => {
+                document.getElementById('trafik-durum-metin').textContent = '⚠ Video bağlanamadı';
+            };
+            img.src = `${base}/api/trafik-video-stream?kaynak=${enc}`;
+
+            // SSE istatistik
+            _trafikEventSource = new EventSource(`${base}/api/trafik-istatistik-stream?kaynak=${enc}`);
+
+            _trafikEventSource.onmessage = function(e) {
+                const d = JSON.parse(e.data);
+
+                if (d.hata) {
+                    document.getElementById('trafik-durum-metin').textContent = `⚠ ${d.hata}`;
+                    trafikDurdur();
+                    return;
+                }
+
+                // Her durumda (öğrenme dahil) videoyu göster — stream başlamış demektir
+                _trafikVideoGoster();
+
+                // Arka plan öğreniliyor
+                if (d.ogreniliyor) {
+                    document.getElementById('trafik-durum-metin').textContent =
+                        `Arka plan öğreniliyor... %${d.ilerleme}`;
+                    return;
+                }
+
+                // Etiket rengi
+                const renkler = { YOGUN: '#dc2626', NORMAL: '#f97316', SAKIN: '#16a34a' };
+                const renk    = renkler[d.etiket] || '#2563eb';
+
+                document.getElementById('trafik-etiket').textContent      = d.etiket || '—';
+                document.getElementById('trafik-etiket').style.color      = renk;
+                document.getElementById('trafik-oran').textContent        = `Değişim: %${d.oran}`;
+                document.getElementById('trafik-ortalama').textContent    = `%${d.ortalama}`;
+                document.getElementById('trafik-maksimum').textContent    = `%${d.maksimum}`;
+                document.getElementById('trafik-kare-sayaci').textContent = `Kare: ${d.kare}`;
+                document.getElementById('trafik-durum-metin').textContent = '🔴 Canlı';
+
+                // Kart kenarlık rengi
+                const kart = document.getElementById('trafik-yogunluk-kart');
+                kart.style.borderColor = renk + '55';
+                kart.style.background  = renk + '18';
+
+                // Grafik
+                if (d.gecmis && d.gecmis.length > 0) {
+                    trafikGrafikCiz(d.gecmis);
+                }
+            };
+
+            _trafikEventSource.onerror = () => {
+                document.getElementById('trafik-durum-metin').textContent = '⚠ Bağlantı kesildi';
+            };
+        }
+
+        function trafikGrafikCiz(veri) {
+            const canvas = document.getElementById('trafik-grafik');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const W   = canvas.offsetWidth || 180;
+            const H   = canvas.height;
+            canvas.width = W;
+
+            ctx.clearRect(0, 0, W, H);
+
+            if (veri.length < 2) return;
+
+            const maks   = Math.max(...veri, 1);
+            const adim_x = W / (veri.length - 1);
+
+            // Arka plan grid
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.lineWidth   = 1;
+            [0.25, 0.5, 0.75].forEach(oran => {
+                const y = H - (oran * H);
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+            });
+
+            // Çizgi
+            ctx.lineWidth = 2;
+            ctx.lineJoin  = 'round';
+            ctx.beginPath();
+            veri.forEach((v, i) => {
+                const x = i * adim_x;
+                const y = H - (v / maks) * H;
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            });
+
+            const son = veri[veri.length - 1];
+            ctx.strokeStyle = son >= 18 ? '#dc2626' : son >= 9 ? '#f97316' : '#16a34a';
+            ctx.stroke();
+
+            // Dolgu
+            ctx.lineTo((veri.length - 1) * adim_x, H);
+            ctx.lineTo(0, H);
+            ctx.closePath();
+            ctx.fillStyle = son >= 18 ? 'rgba(220,38,38,.15)'
+                          : son >= 9  ? 'rgba(249,115,22,.15)'
+                          : 'rgba(22,163,74,.15)';
+            ctx.fill();
+        }
+    </script>
+}
