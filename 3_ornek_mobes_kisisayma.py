@@ -1,4 +1,4 @@
-# main.py
+# 3_ornek_mobes_kisisayma.py
 import cv2
 import subprocess
 import numpy as np
@@ -14,7 +14,7 @@ from database import DatabaseManager
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-# ==================== KONFİGÜRASYON ====================
+# Konfügrasyon:
 KAYNAK_TIPI = "hls"
 HLS_URL = "https://content.tvkur.com/l/c77ia4vbb2nj4i0fr85g/master.m3u8"
 
@@ -164,7 +164,7 @@ class BelediyeKameraTakip:
         )
         
         
-        # KONSOLA YAZDIR (EKLEDİK!)
+        # Konsola yazdırma:
         print(f"📊 [{baslangic.strftime('%H:%M:%S')}] "
           f"Dakikalık toplam gorulen: {self.dakikalik_toplam} | "
           f"Ort: {ortalama:.1f} | Maks: {maks}")
