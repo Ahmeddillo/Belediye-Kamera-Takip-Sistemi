@@ -1,4 +1,5 @@
 # 🏙️ Belediye Kamera Takip Sistemi
+<img width="812" height="575" alt="Ekran görüntüsü 2026-06-04 212336" src="https://github.com/user-attachments/assets/9e792071-d410-4aa6-8cf0-ddf49f56de23" />
 
 Belediye altyapısına entegre edilmek üzere tasarlanmış, yapay zeka destekli çok modüllü kent kamera analiz platformu. YouTube canlı yayınları ve RTSP kameralardan kişi sayımı, araç takibi, trafik yoğunluk analizi, hava durumu tespiti ve plaka okuma işlevlerini merkezi bir API üzerinden sunar.
 
