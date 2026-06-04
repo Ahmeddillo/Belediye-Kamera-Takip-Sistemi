@@ -1,5 +1,4 @@
-// ErrorViewModel.cs
-namespace OtobusDashboard.Models
+namespace BelediyeDashboard.Models
 {
     public class ErrorViewModel
     {
