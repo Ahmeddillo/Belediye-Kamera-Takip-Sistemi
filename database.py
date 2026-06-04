@@ -7,23 +7,12 @@ import time
 
 class DatabaseManager:
     def __init__(self, config):
-        """
-        PostgreSQL bağlantı yöneticisi
-        config: {
-            'host': 'localhost',
-            'database': 'belediye_kamera_db',
-            'user': 'postgres',
-            'password': 'Hello',
-            'port': 5432
-        }
-        """
         self.config = config
         self.pool = None
         self.max_retry = 3
         self.retry_delay = 2
         
     def connect(self):
-        """Bağlantı havuzunu oluştur"""
         for i in range(self.max_retry):
             try:
                 self.pool = SimpleConnectionPool(
@@ -32,6 +21,7 @@ class DatabaseManager:
                     **self.config
                 )
                 print("✅ PostgreSQL bağlantı havuzu oluşturuldu")
+                self.create_tables()
                 return True
             except Exception as e:
                 print(f"⚠️ Bağlantı hatası ({i+1}/{self.max_retry}): {e}")
@@ -39,20 +29,106 @@ class DatabaseManager:
         return False
     
     def get_connection(self):
-        """Havuzdan bağlantı al"""
         if not self.pool:
             if not self.connect():
                 raise Exception("PostgreSQL bağlantısı kurulamadı")
         return self.pool.getconn()
     
     def return_connection(self, conn):
-        """Bağlantıyı havuza geri ver"""
         if self.pool and conn:
             self.pool.putconn(conn)
-    
+
+    def create_tables(self):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS kameralar (
+                        id SERIAL PRIMARY KEY,
+                        ad VARCHAR(255) NOT NULL,
+                        konum VARCHAR(255),
+                        rtsp_url VARCHAR(500),
+                        aktif BOOLEAN DEFAULT true,
+                        olusturma_tarihi TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS dakikalik_olculer (
+                        id SERIAL PRIMARY KEY,
+                        kamera_id INTEGER REFERENCES kameralar(id),
+                        baslangic_zamani TIMESTAMP,
+                        bitis_zamani TIMESTAMP,
+                        toplam_kisi INTEGER,
+                        ortalama_kisi FLOAT,
+                        maksimum_kisi INTEGER,
+                        minimum_kisi INTEGER,
+                        fps_ortalamasi FLOAT,
+                        detaylar JSONB,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS anlik_olcumler (
+                        id SERIAL PRIMARY KEY,
+                        kamera_id INTEGER REFERENCES kameralar(id),
+                        kisi_sayisi INTEGER,
+                        olcum_zamani TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS hava_durumu (
+                        id SERIAL PRIMARY KEY,
+                        kamera_id INTEGER REFERENCES kameralar(id),
+                        durum VARCHAR(255),
+                        guven_orani FLOAT,
+                        tespit_zamani TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS arac_sayim_kayitlari (
+                        id              SERIAL PRIMARY KEY,
+                        tarih           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        kaynak          VARCHAR(500),
+                        toplam_arac     INTEGER,
+                        sinif_sayimlari JSONB,
+                        islenen_kare    INTEGER
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS trafik_yogunluk_kayitlari (
+                        id              SERIAL PRIMARY KEY,
+                        tarih           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        kaynak          VARCHAR(500),
+                        etiket          VARCHAR(20),
+                        degisim_orani   NUMERIC(5,2),
+                        ortalama        NUMERIC(5,2),
+                        maksimum        NUMERIC(5,2),
+                        islenen_kare    INTEGER
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS plaka_kayitlari (
+                        id              SERIAL PRIMARY KEY,
+                        tarih           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        ham_metin       VARCHAR(20),
+                        duzeltilmis     VARCHAR(20),
+                        formatli_plaka  VARCHAR(20),
+                        gecerli_mi      BOOLEAN,
+                        guven_tespit    NUMERIC(4,2),
+                        guven_ocr       NUMERIC(4,2),
+                        dosya_adi       VARCHAR(255)
+                    )
+                """)
+                conn.commit()
+                print("✅ Veritabanı tabloları oluşturuldu")
+        except Exception as e:
+            print(f"⚠️ Tablo oluşturma hatası: {e}")
+            conn.rollback()
+        finally:
+            self.return_connection(conn)
+
     def dakikalik_kaydet(self, kamera_id, baslangic, bitis, toplam_kisi, 
                          ortalama, maksimum, minimum, fps, detaylar=None):
-        """Dakikalık veriyi kaydet"""
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
@@ -75,7 +151,6 @@ class DatabaseManager:
             self.return_connection(conn)
     
     def anlik_kaydet(self, kamera_id, kisi_sayisi):
-        """Anlık veriyi kaydet (10 saniyede bir)"""
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
@@ -88,7 +163,6 @@ class DatabaseManager:
             self.return_connection(conn)
     
     def son_dakika_verisi(self, kamera_id):
-        """Son dakika verisini getir"""
         conn = self.get_connection()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -103,10 +177,8 @@ class DatabaseManager:
             self.return_connection(conn)
     
     def saatlik_rapor(self, kamera_id, tarih=None):
-        """Saatlik rapor getir"""
         if not tarih:
             tarih = datetime.now().date()
-        
         conn = self.get_connection()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -126,26 +198,31 @@ class DatabaseManager:
                 return cur.fetchall()
         finally:
             self.return_connection(conn)
-            
+    
+    def gunluk_rapor(self, kamera_id, baslangic, bitis):
+        conn = self.get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT 
+                        baslangic_zamani::date as gun,
+                        COUNT(*) as olcum_sayisi,
+                        SUM(toplam_kisi) as gunluk_toplam,
+                        AVG(ortalama_kisi) as gunluk_ortalama
+                    FROM dakikalik_olculer 
+                    WHERE kamera_id = %s 
+                        AND baslangic_zamani::date BETWEEN %s::date AND %s::date
+                    GROUP BY gun
+                    ORDER BY gun
+                """, (kamera_id, baslangic, bitis))
+                return cur.fetchall()
+        finally:
+            self.return_connection(conn)
             
     def hava_durumu_kaydet(self, kamera_id, durum, guven_orani):
-        """
-        Hava durumunu kaydet — sadece önceki kayıttan farklıysa yazar.
-        Aynı durum tekrar tekrar DB'ye yazılmaz.
-        
-        Parametreler:
-            kamera_id  : int   — hangi kameraya ait
-            durum      : str   — Türkçe etiket ("Gunesli", "Yagmurlu" vb.)
-            guven_orani: float — CLIP'in yüzdelik güven skoru (ör: 87.3)
-        
-        Döndürür:
-            True  → yeni kayıt yazıldı (durum değişmişti)
-            False → yazılmadı (durum aynıydı) veya hata
-        """
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
-                # Son kaydedilen durumu kontrol et
                 cur.execute("""
                     SELECT durum FROM hava_durumu
                     WHERE kamera_id = %s
@@ -153,19 +230,14 @@ class DatabaseManager:
                     LIMIT 1
                 """, (kamera_id,))
                 son_kayit = cur.fetchone()
- 
-                # Aynı durumsa yazma
                 if son_kayit and son_kayit[0] == durum:
                     return False
- 
-                # Farklıysa yaz
                 cur.execute("""
                     INSERT INTO hava_durumu (kamera_id, durum, guven_orani)
                     VALUES (%s, %s, %s)
                 """, (kamera_id, durum, guven_orani))
                 conn.commit()
                 return True
- 
         except Exception as e:
             print(f"❌ Hava durumu kayıt hatası: {e}")
             conn.rollback()
@@ -174,13 +246,8 @@ class DatabaseManager:
             self.return_connection(conn)
  
     def hava_durumu_gecmis(self, kamera_id, tarih=None):
-        """
-        Belirli bir güne ait hava durumu geçmişini getirir.
-        tarih verilmezse bugün kullanılır.
-        """
         if not tarih:
             tarih = datetime.now().date()
- 
         conn = self.get_connection()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -194,9 +261,71 @@ class DatabaseManager:
                 return cur.fetchall()
         finally:
             self.return_connection(conn)
-    
+
+    def arac_sayim_kaydet(self, kaynak: str, toplam: int,
+                          sinif_sayimlari: dict, islenen_kare: int) -> bool:
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO arac_sayim_kayitlari
+                        (kaynak, toplam_arac, sinif_sayimlari, islenen_kare)
+                    VALUES (%s, %s, %s, %s)
+                """, (kaynak[:500], toplam, Json(sinif_sayimlari), islenen_kare))
+                conn.commit()
+                print(f"✅ Araç sayımı kaydedildi: {toplam} araç, {islenen_kare} kare")
+                return True
+        except Exception as e:
+            print(f"❌ Araç sayımı kayıt hatası: {e}")
+            conn.rollback()
+            return False
+        finally:
+            self.return_connection(conn)
+
+    def trafik_yogunluk_kaydet(self, kaynak: str, etiket: str, oran: float,
+                                ortalama: float, maksimum: float, kare: int) -> bool:
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO trafik_yogunluk_kayitlari
+                        (kaynak, etiket, degisim_orani, ortalama, maksimum, islenen_kare)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (kaynak[:500], etiket, oran, ortalama, maksimum, kare))
+                conn.commit()
+                print(f"✅ Trafik yoğunluk kaydedildi: {etiket}, %{oran}")
+                return True
+        except Exception as e:
+            print(f"❌ Trafik kayıt hatası: {e}")
+            conn.rollback()
+            return False
+        finally:
+            self.return_connection(conn)
+
+    def plaka_kaydet(self, ham: str, duzeltilmis: str, formatli: str,
+                     gecerli: bool, guven_tespit: float, guven_ocr: float,
+                     dosya_adi: str = "") -> bool:
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO plaka_kayitlari
+                        (ham_metin, duzeltilmis, formatli_plaka, gecerli_mi,
+                         guven_tespit, guven_ocr, dosya_adi)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (ham, duzeltilmis, formatli, gecerli,
+                      guven_tespit, guven_ocr, dosya_adi))
+                conn.commit()
+                print(f"✅ Plaka kaydedildi: {formatli} ({'✓' if gecerli else '✗'})")
+                return True
+        except Exception as e:
+            print(f"❌ Plaka kayıt hatası: {e}")
+            conn.rollback()
+            return False
+        finally:
+            self.return_connection(conn)
+
     def close(self):
-        """Tüm bağlantıları kapat"""
         if self.pool:
             self.pool.closeall()
             print("🔒 PostgreSQL bağlantıları kapatıldı")
