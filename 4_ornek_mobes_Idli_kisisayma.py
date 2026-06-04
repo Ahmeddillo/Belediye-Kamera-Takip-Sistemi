@@ -1,4 +1,4 @@
-# main.py
+# 4_ornek_mobes_Idli_kisisayma.py
 import cv2
 import subprocess
 import numpy as np
@@ -14,7 +14,7 @@ from database import DatabaseManager
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-# ==================== KONFİGÜRASYON ====================
+# Konfigürasyon:
 KAYNAK_TIPI = "hls"
 YOUTUBE_URL = "https://www.youtube.com/watch?v=DjdUEyjx8GM"
 RTSP_URL = "rtsp://kamera.belediye.gov.tr:554/stream"
@@ -53,7 +53,7 @@ class BelediyeKameraTakip:
         self.process = None
         self.running = True
         
-        # ZAMANLAYICILAR
+        # Zamanlayıcılar:
         self.dakika_baslangic = time.time()
         self.dakika_sayaci = 0
         self.dakikalik_toplam_gorulme = 0
@@ -117,7 +117,6 @@ class BelediyeKameraTakip:
         h, w = frame.shape[:2]
         cizgi_y = int(h * 0.6)
         
-        # --- DEĞİŞİKLİK BURADA ---
         # model(...) yerine model.track(...) kullanıyoruz.
         # persist=True: Bir önceki karedeki ID'leri hatırla demektir.
         # tracker="bytetrack.yaml": ID değişimini en aza indiren algoritma.
