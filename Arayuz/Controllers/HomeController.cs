@@ -1,9 +1,8 @@
-//HomeController.cs
 using System.Diagnostics;
+using BelediyeDashboard.Models;
 using Microsoft.AspNetCore.Mvc;
-using OtobusDashboard.Models;
 
-namespace OtobusDashboard.Controllers
+namespace BelediyeDashboard.Controllers
 {
     public class HomeController : Controller
     {
