@@ -1,4 +1,4 @@
-# main.py
+# 1_yt_kisisayma.py
 import cv2
 import subprocess
 import numpy as np
@@ -14,7 +14,7 @@ from database import DatabaseManager
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-# ==================== KONFİGÜRASYON ====================
+# Konfigürasyon:
 KAYNAK_TIPI = "youtube"
 YOUTUBE_URL = "https://www.youtube.com/watch?v=DjdUEyjx8GM"
 RTSP_URL = "rtsp://kamera.belediye.gov.tr:554/stream"
@@ -33,14 +33,14 @@ PG_CONFIG = {
 MODEL_ADI = 'yolov8n.pt'
 CIBOZUNURLUK = (426, 240)
 FPS = 10
-# ========================================================
+# ------------------------------------------------------
 
 class BelediyeKameraTakip:
     def __init__(self):
         self.db = DatabaseManager(PG_CONFIG)
         self.db.connect()
         
-        # ÖNCE KAMERA VAR MI KONTROL ET!
+        # Kameranın varlığı kontrol edilsin
         self.kamera_id = self.kamera_kontrol()
         if not self.kamera_id:
             print("❌ Geçerli bir kamera ID'si yok. Önce API'den kamera ekleyin!")
@@ -53,7 +53,7 @@ class BelediyeKameraTakip:
         self.process = None
         self.running = True
         
-        # Sayaçlar - DÜZELTİLDİ!
+        # Düzeltilmiş Sayaçlar:
         self.dakika_baslangic = time.time()
         self.dakika_sayaci = 0
         self.dakikalik_toplam = 0  # Bu sadece dakikalık toplam için
@@ -148,7 +148,7 @@ class BelediyeKameraTakip:
         # Listeye ekle (geçmiş için)
         self.kisi_listesi.append(anlik_kisi)
         
-        # Dakikalık toplama EKLE (doğru olan bu!)
+        # Dakikalık toplama EKLE 
         self.dakikalik_toplam += anlik_kisi
         self.dakika_sayaci += 1
         
@@ -160,11 +160,10 @@ class BelediyeKameraTakip:
         if time.time() - self.dakika_baslangic >= 60:
             self.save_minute_data()
         
-        # Görüntüyü hazırla (DÜZELTİLDİ!)
+        # Görüntüyü hazırla 
         annotated = results[0].plot()
         kalan_sure = 60 - int(time.time() - self.dakika_baslangic)
         
-        # ŞİMDİ DOĞRU: anlik_kisi = o andaki kişi sayısı
         # dakikalik_toplam = o dakika boyunca GÖRÜLEN TOPLAM KİŞİ (bir kişi birden çok sayılabilir)
         cv2.putText(annotated, 
                    f"Anlik: {anlik_kisi} | Bu dakika toplam: {self.dakikalik_toplam} | Kalan: {kalan_sure}s", 
