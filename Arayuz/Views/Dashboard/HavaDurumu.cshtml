@@ -1,0 +1,274 @@
+@* Views/Dashboard/HavaDurumu.cshtml *@
+@model List<BelediyeDashboard.Models.TumKameralarHavaDurumu>
+@{
+    ViewData["Title"] = "Hava Durumu";
+}
+
+@{
+    var durumIkon = new Dictionary<string, string>
+            {
+                ["Gunesli"] = "☀",
+                ["Parcali Bulutlu"] = "⛅",
+                ["Bulutlu / Kapali"] = "☁",
+                ["Yagmurlu / Islak"] = "🌧",
+                ["Karli / Sisli"] = "❄",
+                ["Gece / Karanlik"] = "🌙",
+                ["Kirli Lens"] = "⚠",
+            };
+    var durumRenk = new Dictionary<string, string>
+            {
+                ["Gunesli"] = "#f59e0b",
+                ["Parcali Bulutlu"] = "#94a3b8",
+                ["Bulutlu / Kapali"] = "#64748b",
+                ["Yagmurlu / Islak"] = "#60a5fa",
+                ["Karli / Sisli"] = "#cbd5e1",
+                ["Gece / Karanlik"] = "#94a3b8",
+                ["Kirli Lens"] = "#f87171",
+            };
+}
+
+<!-- KAMERA KARTLARI (SSR) -->
+<div class="row g-3 mb-4">
+
+    @if (Model != null && Model.Any())
+    {
+        @foreach (var k in Model)
+        {
+            var ikon = durumIkon.GetValueOrDefault(k.Durum, "?");
+            var renk = durumRenk.GetValueOrDefault(k.Durum, "#94a3b8");
+            var saat = k.TespitZamani?.Length >= 19 ? k.TespitZamani.Substring(11, 8) : "--:--";
+
+            <div class="col-xl-4 col-md-6">
+                <div class="panel" id="kart-@k.KameraId"
+                     style="cursor:pointer; border-top:3px solid @renk; transition:all .2s;"
+                     onclick="kameraDetayYukle(@k.KameraId, this)">
+                    <div class="panel-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <div style="font-size:14px; font-weight:700; color:var(--mavi-koyu);">
+                                    @k.KameraAd
+                                </div>
+                                <div style="font-size:12px; color:var(--gri-400); margin-top:3px;">
+                                    <i class="bi bi-geo-alt"></i> @k.Konum
+                                </div>
+                            </div>
+                            <span style="font-size:38px; line-height:1;">@ikon</span>
+                        </div>
+                        <div style="font-size:22px; font-weight:700; color:@renk; margin-top:14px;">
+                            @k.Durum
+                        </div>
+                        <div style="background:var(--gri-200); border-radius:4px; height:5px; margin-top:10px;">
+                            <div style="width:@k.GuvenOrani%; height:100%; border-radius:4px; background:@renk; transition:width .6s;"></div>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--gri-400); margin-top:5px;">
+                            <span>Güven: %@k.GuvenOrani.ToString("F1")</span>
+                            <span>@saat</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="col-12">
+            <div class="panel">
+                <div class="panel-body text-center py-5 text-muted">
+                    <i class="bi bi-cloud-slash fs-1 d-block mb-3"></i>
+                    <div>Henüz hava durumu verisi yok.</div>
+                    <small class="mt-2 d-block">
+                        <code>7_havadurumu_tespiti_vid.py</code> scripti çalışıyor mu?
+                    </small>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- DETAY PANELİ (JS ile dolar) -->
+<div class="row g-3" id="detay-alani" style="display:none;">
+    <div class="col-12">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title" id="detay-baslik">
+                    <i class="bi bi-calendar3"></i>
+                    Günlük Geçmiş
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <input type="date" id="tarih-sec"
+                           class="form-control form-control-sm"
+                           style="width:auto; font-size:12px;"
+                           onchange="gecmisYukle()">
+                    <span id="degisim-etiketi" class="text-muted" style="font-size:12px;"></span>
+                </div>
+            </div>
+            <div class="panel-body">
+
+                <!-- Özet sayaçları -->
+                <div class="row g-2 mb-4" id="ozet-satirlari"></div>
+
+                <!-- Geçmiş tablo -->
+                <div id="yukleniyor-gostergesi" style="display:none; text-align:center; padding:20px; color:var(--gri-400); font-size:13px;">
+                    Yükleniyor...
+                </div>
+                <table class="rapor-tablo" id="gecmis-tablo">
+                    <thead>
+                        <tr>
+                            <th>Saat</th>
+                            <th>Durum</th>
+                            <th>Güven Oranı</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gecmis-satirlari">
+                        <tr>
+                            <td colspan="3" class="text-center text-muted py-4">
+                                Yukarıdaki bir kamera kartına tıklayın.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        let aktifKameraId = null;
+
+        const HAVA_IKON = {
+            "Gunesli":          "☀",
+            "Parcali Bulutlu":  "⛅",
+            "Bulutlu / Kapali": "☁",
+            "Yagmurlu / Islak": "🌧",
+            "Karli / Sisli":    "❄",
+            "Gece / Karanlik":  "🌙",
+            "Kirli Lens":       "⚠"
+        };
+        const HAVA_RENK = {
+            "Gunesli":          "#f59e0b",
+            "Parcali Bulutlu":  "#94a3b8",
+            "Bulutlu / Kapali": "#64748b",
+            "Yagmurlu / Islak": "#60a5fa",
+            "Karli / Sisli":    "#cbd5e1",
+            "Gece / Karanlik":  "#94a3b8",
+            "Kirli Lens":       "#f87171"
+        };
+
+        function kameraDetayYukle(kameraId, kartEl) {
+            aktifKameraId = kameraId;
+
+            // Aktif stili
+            document.querySelectorAll('[id^="kart-"]').forEach(k => {
+                k.style.boxShadow = '';
+                k.style.transform = '';
+            });
+            kartEl.style.boxShadow = '0 0 0 2px var(--mavi-parlak)';
+            kartEl.style.transform = 'translateY(-2px)';
+
+            // Başlığı güncelle
+            const ad = kartEl.querySelector('[style*="font-weight:700"]')?.textContent?.trim() ?? `Kamera ${kameraId}`;
+            document.getElementById('detay-baslik').innerHTML =
+                `<i class="bi bi-calendar3"></i> ${ad} — Günlük Geçmiş`;
+
+            // Bugünün tarihini ayarla
+            document.getElementById('tarih-sec').value =
+                new Date().toISOString().split('T')[0];
+
+            document.getElementById('detay-alani').style.display = '';
+            gecmisYukle();
+        }
+
+        async function gecmisYukle() {
+            if (!aktifKameraId) return;
+
+            const tarih    = document.getElementById('tarih-sec').value;
+            const yukEl    = document.getElementById('yukleniyor-gostergesi');
+            const satirEl  = document.getElementById('gecmis-satirlari');
+            const ozetEl   = document.getElementById('ozet-satirlari');
+            const degisimEl = document.getElementById('degisim-etiketi');
+
+            yukEl.style.display  = 'block';
+            satirEl.innerHTML    = '';
+            ozetEl.innerHTML     = '';
+
+            try {
+                const res  = await fetch(`/Dashboard/HavaDurumuGecmis?kameraId=${aktifKameraId}&tarih=${tarih}`);
+                const data = await res.json();
+
+                yukEl.style.display = 'none';
+                degisimEl.textContent = `${data.toplamDegisim} değişim`;
+
+                // Özet kartları
+                if (data.durumOzeti && Object.keys(data.durumOzeti).length > 0) {
+                    ozetEl.innerHTML = Object.entries(data.durumOzeti)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([durum, sayi]) => `
+                            <div class="col-auto">
+                                <div class="kpi-card mavi" style="padding:12px 16px; min-width:130px;">
+                                    <div style="font-size:24px;">${HAVA_IKON[durum] ?? '?'}</div>
+                                    <div style="font-size:20px; font-weight:700; color:var(--mavi-koyu);">${sayi}</div>
+                                    <div style="font-size:11px; color:var(--gri-400);">${durum}</div>
+                                </div>
+                            </div>
+                        `).join('');
+                } else {
+                    ozetEl.innerHTML = '<div class="col-12"><p class="text-muted" style="font-size:13px;">Bu tarihte kayıt yok.</p></div>';
+                }
+
+                // Tablo satırları
+                if (data.gecmis && data.gecmis.length > 0) {
+                    satirEl.innerHTML = [...data.gecmis].reverse().map(g => {
+                        const saat  = g.tespitZamani?.substring(11, 19) ?? '--:--';
+                        const renk  = HAVA_RENK[g.durum]  ?? '#94a3b8';
+                        const ikon  = HAVA_IKON[g.durum]  ?? '?';
+                        const guven = typeof g.guvenOrani === 'number'
+                            ? g.guvenOrani.toFixed(1) : g.guvenOrani;
+                        return `
+                            <tr>
+                                <td style="font-weight:600; color:var(--mavi-koyu);">${saat}</td>
+                                <td>
+                                    <span style="display:inline-flex; align-items:center; gap:5px;
+                                                 padding:3px 10px; border-radius:20px; font-size:12px;
+                                                 font-weight:600; color:${renk};
+                                                 background:${renk}18; border:1px solid ${renk}40;">
+                                        ${ikon} ${g.durum}
+                                    </span>
+                                </td>
+                                <td>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <div style="flex:1; background:var(--gri-200); border-radius:3px; height:5px; max-width:80px;">
+                                            <div style="width:${guven}%; height:100%; border-radius:3px; background:${renk};"></div>
+                                        </div>
+                                        <span style="font-size:12px; color:var(--gri-600);">%${guven}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+                } else {
+                    satirEl.innerHTML = `
+                        <tr>
+                            <td colspan="3" class="text-center text-muted py-4">
+                                Bu tarihte kayıt bulunamadı.
+                            </td>
+                        </tr>`;
+                }
+            } catch (e) {
+                yukEl.style.display = 'none';
+                satirEl.innerHTML = `
+                    <tr>
+                        <td colspan="3" class="text-center text-muted py-4">
+                            API bağlantı hatası: ${e.message}
+                        </td>
+                    </tr>`;
+            }
+        }
+
+        // Aktif kamera varsa 60sn'de bir yenile
+        setInterval(() => {
+            if (aktifKameraId) gecmisYukle();
+        }, 60000);
+    </script>
+}
