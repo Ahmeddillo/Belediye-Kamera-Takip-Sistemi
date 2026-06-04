@@ -1,4 +1,4 @@
-# main.py
+# 2_yt_yari_kisisayma.py
 import cv2
 import subprocess
 import numpy as np
@@ -14,7 +14,7 @@ from database import DatabaseManager
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-# ==================== KONFİGÜRASYON ====================
+# Konfigürasyon:
 KAYNAK_TIPI = "youtube" #youtube değil de rstp kullanacaksan, bu değeri rstp olarak değiştirmen lazım.
 YOUTUBE_URL = "https://www.youtube.com/watch?v=DjdUEyjx8GM"
 RTSP_URL = "rtsp://kamera.belediye.gov.tr:554/stream"
