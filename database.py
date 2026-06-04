@@ -223,21 +223,27 @@ class DatabaseManager:
         conn = self.get_connection()
         try:
             with conn.cursor() as cur:
+                # Son kayıttan bu yana 30 saniye geçti mi kontrol et
                 cur.execute("""
-                    SELECT durum FROM hava_durumu
+                    SELECT tespit_zamani FROM hava_durumu
                     WHERE kamera_id = %s
                     ORDER BY tespit_zamani DESC
                     LIMIT 1
                 """, (kamera_id,))
                 son_kayit = cur.fetchone()
-                if son_kayit and son_kayit[0] == durum:
-                    return False
+    
+                if son_kayit:
+                    gecen_sure = (datetime.now() - son_kayit[0]).total_seconds()
+                    if gecen_sure < 30:
+                        return False  # 30 saniye dolmadı, yazma
+    
                 cur.execute("""
                     INSERT INTO hava_durumu (kamera_id, durum, guven_orani)
                     VALUES (%s, %s, %s)
                 """, (kamera_id, durum, guven_orani))
                 conn.commit()
                 return True
+    
         except Exception as e:
             print(f"❌ Hava durumu kayıt hatası: {e}")
             conn.rollback()
