@@ -110,13 +110,12 @@ namespace BelediyeDashboard.Services
             }
         }
 
-        // ── ++ HAVA DURUMU METODLARI ──
+        // ── HAVA DURUMU METODLARI ──
 
         public async Task<HavaDurumu?> GetSonHavaDurumuAsync(int kameraId, CancellationToken ct = default)
         {
             try
             {
-                // api.py → GET /hava-durumu/{kamera_id}
                 return await _httpClient.GetFromJsonAsync<HavaDurumu>($"/hava-durumu/{kameraId}", _jsonOptions, ct);
             }
             catch (Exception ex)
@@ -130,7 +129,6 @@ namespace BelediyeDashboard.Services
         {
             try
             {
-                // api.py → GET /hava-durumu-gecmis/{kamera_id}?tarih=...
                 var query = string.IsNullOrEmpty(tarih) ? "" : $"?tarih={tarih}";
                 return await _httpClient.GetFromJsonAsync<HavaDurumuGecmis>(
                     $"/hava-durumu-gecmis/{kameraId}{query}", _jsonOptions, ct);
@@ -146,7 +144,6 @@ namespace BelediyeDashboard.Services
         {
             try
             {
-                // api.py → GET /hava-durumu-tum-kameralar
                 return await _httpClient.GetFromJsonAsync<List<TumKameralarHavaDurumu>>(
                     "/hava-durumu-tum-kameralar", _jsonOptions, ct);
             }
