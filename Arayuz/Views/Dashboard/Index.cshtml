@@ -211,7 +211,7 @@
     </div>
 </div>
 
-<!-- ++ HAVA DURUMU ÖNİZLEME PANELİ -->
+<!-- HAVA DURUMU ÖNİZLEME PANELİ -->
 <div class="row g-3">
     <div class="col-12">
         <div class="panel" style="background:var(--mavi-koyu); border-color:rgba(255,255,255,.1);">
@@ -246,7 +246,7 @@
     <i class="bi bi-car-front-fill me-1"></i>Plaka Tanı
 </button>
 
-<!-- ++ YENİ: Araç Sayım butonu -->
+<!-- Araç Sayım butonu -->
 <button class="btn btn-sm btn-outline-success"
         data-bs-toggle="modal" data-bs-target="#aracSayModal">
     <i class="bi bi-truck me-1"></i>Araç Say
@@ -670,7 +670,6 @@
         margin: 10px 0 !important;
     }
 
-    /* ⬇️ MODAL RENK DEĞİŞKENLERİ EKLE */
     :root {
         --panel-bg: #ffffff;
         --text-primary: #1F2937;
@@ -680,7 +679,6 @@
         --mavi-koyu: #1E40AF;
     }
 
-    /* Koyu tema desteği */
     @@media (prefers-color-scheme: dark) {
         :root {
             --panel-bg: #1F2937;
@@ -692,7 +690,6 @@
         }
     }
 
-    /* Modal body text rengi fix */
     .modal-body {
         color: var(--text-primary) !important;
     }
@@ -867,7 +864,7 @@
             } catch (e) { console.warn('Haftalık grafik yüklenemedi:', e); }
         }
 
-        // ── ++ Hava Durumu Önizleme (tüm kameralar) ──
+        // ── Hava Durumu Önizleme (tüm kameralar) ──
         async function havaOnizlemeGuncelle() {
             const konteyner = document.getElementById('hava-onizleme-listesi');
             try {
