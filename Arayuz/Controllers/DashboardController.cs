@@ -1,5 +1,4 @@
 // Controllers/DashboardController.cs
-// Mevcut dosyanın TAM HALİ — hava durumu action'ları eklendi
 
 using Microsoft.AspNetCore.Mvc;
 using BelediyeDashboard.Models;
@@ -141,7 +140,7 @@ namespace BelediyeDashboard.Controllers
             }
         }
 
-        // ── ++ HAVA DURUMU: Detay sayfası (SSR) ──
+        // ── HAVA DURUMU: Detay sayfası (SSR) ──
         [HttpGet]
         public async Task<IActionResult> HavaDurumu()
         {
@@ -149,7 +148,7 @@ namespace BelediyeDashboard.Controllers
             return View(tumKameralar ?? new List<TumKameralarHavaDurumu>());
         }
 
-        // ── ++ HAVA DURUMU: AJAX — tek kamera son durum ──
+        // ── HAVA DURUMU: AJAX - tek kamera son durum ──
         [HttpGet]
         public async Task<IActionResult> HavaDurumuCanli(int kameraId = 1)
         {
@@ -162,7 +161,7 @@ namespace BelediyeDashboard.Controllers
             });
         }
 
-        // ── ++ HAVA DURUMU: AJAX — günlük geçmiş ──
+        // ── HAVA DURUMU: AJAX - günlük geçmiş ──
         [HttpGet]
         public async Task<IActionResult> HavaDurumuGecmis(int kameraId = 1, string? tarih = null)
         {
