@@ -130,7 +130,7 @@ namespace BelediyeDashboard.Models
         public List<AnlikOlcum> SonVeriler { get; set; } = new();
     }
 
-    // ApiModels.cs — JSON alan eşleştirmesi
+    // ApiModels.cs - JSON alan eşleştirmesi
     public class AnlikOlcum
     {
         [JsonPropertyName("kamera_id")]
