@@ -221,7 +221,7 @@ class HavaDurumuRadari:
         self.cleanup()
 
     def signal_handler(self, sig, frame):
-        # Yazılımın dış sinyallerle (Ctrl+C gibi) güvenli şekilde durmasını sağlar
+        # Yazılımın dış sinyallerle güvenli şekilde durmasını sağlar
         print("\n Durduruluyor...")
         self.running = False
 
